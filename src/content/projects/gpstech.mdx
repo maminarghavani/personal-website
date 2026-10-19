@@ -1,0 +1,61 @@
+---
+title: "GPSTech"
+description: "A GPS tracking platform spanning connected devices, telemetry processing, geospatial data, backend services, and web administration."
+category: "Platform Engineering"
+technologies:
+  - NestJS
+  - Go
+  - PostgreSQL
+  - Redis
+  - Next.js
+  - MapLibre
+status: "Active"
+featured: true
+year: "2025–Present"
+role: "Software Engineer"
+---
+
+## Overview
+
+GPSTech is a connected-device platform built around real-time vehicle tracking and fleet management.
+
+The system brings together device communication, telemetry processing, geospatial data, backend APIs, web administration, and user-facing applications.
+
+## What I built
+
+The platform spans several layers of the system:
+
+- Backend APIs and domain services
+- Device communication and telemetry processing
+- Real-time GPS data pipelines
+- Geospatial data and map infrastructure
+- Web-based administration
+- Authentication and authorization
+- Device access and permission management
+- Vehicle and fleet management
+
+## Engineering challenges
+
+The interesting part of the project is not any individual feature, but the interaction between multiple systems.
+
+A GPS point can originate from a physical tracking device, pass through a device protocol handler, be processed by backend services, persisted as geospatial data, and eventually appear on a live map.
+
+That requires careful handling of:
+
+- connection state
+- unreliable device communication
+- telemetry frequency
+- authorization boundaries
+- geospatial queries
+- real-time updates
+- historical data
+
+## Architecture
+
+The backend is built around NestJS services and Go-based device communication, with PostgreSQL handling relational and geospatial data and Redis supporting communication between services.
+
+The web administration layer is built with Next.js and provides operational interfaces for managing devices, users, vendors, vehicles, alarms, and related platform functionality.
+
+## Result
+
+The result is a full-stack GPS platform where the device protocol, backend infrastructure, data layer, and user interface are designed as parts of the same system rather than isolated applications.

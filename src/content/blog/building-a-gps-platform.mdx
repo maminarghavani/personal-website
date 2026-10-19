@@ -1,0 +1,621 @@
+---
+title: "Building a GPS Platform: From Devices to Real-Time Maps"
+description: "An engineering look at the architecture behind a GPS platform, covering device communication, telemetry, data storage, geospatial processing, real-time systems, and map experiences."
+publishedAt: "2026-09-24"
+category: "Engineering"
+tags:
+  [
+    "GPS",
+    "Backend",
+    "Go",
+    "NestJS",
+    "PostgreSQL",
+    "PostGIS",
+    "Redis",
+    "MapLibre",
+  ]
+readingTime: "10 min read"
+featured: true
+---
+
+---
+
+A GPS tracking application can look deceptively simple.
+
+A device reports its location, a backend receives it, and a user sees a vehicle moving across a map.
+
+That description hides most of the engineering.
+
+A production GPS platform has to connect physical devices, unreliable networks, device protocols, backend services, databases, real-time processing, geospatial operations, authentication, permissions, and user interfaces.
+
+The difficult part is not making one of those components work.
+
+The difficult part is making all of them behave as one coherent system.
+
+## The system starts with a device
+
+A GPS tracker is fundamentally different from a typical web client.
+
+A browser or mobile application usually has a relatively predictable lifecycle. A physical tracker does not.
+
+It may:
+
+- lose its network connection
+- reconnect after several minutes
+- send incomplete packets
+- report stale coordinates
+- send telemetry at different intervals
+- remain connected while temporarily producing no useful data
+- reconnect through a different network path
+
+That means the backend cannot simply think in terms of:
+
+```text
+connected = true
+```
+
+A useful platform needs to model several independent concepts.
+
+For example:
+
+```text
+Device registration
+        |
+        v
+Device authorization
+        |
+        v
+Network connection
+        |
+        v
+Telemetry received
+        |
+        v
+Recent activity
+        |
+        v
+Application online state
+```
+
+These states are related, but they are not identical.
+
+A device can be registered without being connected.
+
+It can be connected without having sent a recent GPS point.
+
+It can have a recent location while its current connection has already disappeared.
+
+Making these distinctions early prevents many problems later.
+
+## Following a GPS point through the platform
+
+One of the most useful ways to reason about a connected-device system is to follow a single GPS point through the architecture.
+
+A simplified flow looks like this:
+
+```text
+┌─────────────────┐
+│   GPS Device    │
+└────────┬────────┘
+         │
+         │ TCP / Protocol
+         ▼
+┌─────────────────┐
+│ Device Server   │
+│    Go / GT06    │
+└────────┬────────┘
+         │
+         │ Telemetry
+         ▼
+┌─────────────────┐
+│ Processing Layer │
+└───────┬─────────┘
+        │
+        ├──────────────► Redis
+        │
+        ▼
+┌─────────────────┐
+│ Backend Services │
+│     NestJS      │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│   PostgreSQL    │
+│    PostGIS      │
+│   TimescaleDB   │
+└────────┬────────┘
+         │
+         ├──────────────► Web API
+         │
+         └──────────────► Mobile API
+                              │
+                              ▼
+                       ┌─────────────┐
+                       │ Map / Client │
+                       └─────────────┘
+```
+
+Each layer has a different responsibility.
+
+The device server understands the communication protocol.
+
+The processing layer turns incoming messages into useful telemetry.
+
+The backend understands the application's domain.
+
+The database stores durable state and historical information.
+
+The client presents that state to the user.
+
+Keeping those responsibilities separate makes the system easier to maintain.
+
+## Device communication deserves its own boundary
+
+Device protocols are usually not application-domain logic.
+
+A protocol parser should not need to know what a vendor is, how a user is authorized, or whether a vehicle belongs to a particular account.
+
+Its responsibility should be much narrower:
+
+```text
+Incoming bytes
+      ↓
+Protocol parsing
+      ↓
+Validated message
+      ↓
+Normalized telemetry
+```
+
+For example, a protocol layer might transform a device-specific message into a normalized structure:
+
+```ts
+{
+  imei: "868780070462120",
+  latitude: 35.7165,
+  longitude: 51.3907,
+  speed: 42,
+  course: 180,
+  acc: true,
+  recordedAt: "2026-09-24T10:20:00Z"
+}
+```
+
+The rest of the application should not need to understand how those values were encoded on the wire.
+
+That separation becomes especially valuable when a platform eventually supports multiple device protocols.
+
+## Normalize telemetry before building features around it
+
+GPS devices often expose similar concepts using different protocol-specific representations.
+
+One device might encode ignition as a bit.
+
+Another might use an alarm field.
+
+Another might expose a vendor-specific status value.
+
+The application should ideally work with normalized concepts rather than carrying those protocol differences throughout the entire codebase.
+
+For example:
+
+```text
+Protocol-specific message
+        ↓
+Protocol adapter
+        ↓
+Normalized telemetry
+        ↓
+Domain services
+        ↓
+Application features
+```
+
+This allows features such as alarms, reports, maps, and vehicle status to operate on stable application concepts.
+
+It also keeps protocol changes from leaking into unrelated parts of the system.
+
+## Choosing the right data store
+
+GPS systems generate several different types of data.
+
+There is relatively stable application data:
+
+- users
+- vendors
+- devices
+- vehicles
+- permissions
+- configuration
+
+There is spatial data:
+
+- coordinates
+- routes
+- geofences
+- spatial relationships
+
+There is time-oriented telemetry:
+
+- GPS points
+- speed
+- ignition state
+- sensor values
+- device activity
+
+And there is short-lived operational data:
+
+- commands
+- events
+- processing messages
+- transient state
+
+Trying to treat all of these workloads identically usually makes the system harder to operate.
+
+A more deliberate architecture assigns each workload to infrastructure that matches its characteristics.
+
+For example:
+
+```text
+PostgreSQL
+    ├── Users
+    ├── Devices
+    ├── Vehicles
+    ├── Permissions
+    └── Application state
+
+PostGIS
+    ├── Coordinates
+    ├── Routes
+    └── Geofences
+
+TimescaleDB
+    └── Time-series telemetry
+
+Redis
+    ├── Short-lived state
+    ├── Events
+    └── Service communication
+```
+
+The important principle is not the number of technologies.
+
+It is that every infrastructure component should have a clear responsibility.
+
+## Geospatial data changes the architecture
+
+Latitude and longitude may look like two numbers, but once a product starts asking spatial questions, ordinary database operations are no longer enough.
+
+Consider questions such as:
+
+- Is a vehicle inside a geofence?
+- Which vehicles are near a location?
+- How far did a vehicle travel?
+- What route did it follow?
+- Did it leave a defined area?
+- Which devices were active within a geographic region?
+
+These are spatial operations.
+
+A database with spatial capabilities allows much of this work to happen close to the data.
+
+For example, instead of loading thousands of GPS points into an application and calculating distances manually, spatial functions can perform the operation within the database.
+
+This becomes increasingly important as the amount of historical telemetry grows.
+
+## Time matters as much as location
+
+A GPS point without a meaningful timestamp is incomplete.
+
+Consider these two points:
+
+```text
+35.7165, 51.3907
+```
+
+and:
+
+```text
+35.7165, 51.3907
+2026-09-24T10:20:00Z
+```
+
+The second point tells us when the vehicle was there.
+
+That matters for:
+
+- route reconstruction
+- historical playback
+- distance calculations
+- reporting
+- alarm evaluation
+- device activity
+- identifying stale telemetry
+
+In a production GPS system, location and time should therefore be treated as first-class parts of the telemetry model.
+
+## Real-time does not mean everything needs to update constantly
+
+Real-time systems can easily become unnecessarily expensive when every piece of information is treated as equally urgent.
+
+Different data has different freshness requirements.
+
+Current vehicle position might need frequent updates.
+
+Historical routes do not.
+
+A configuration change might happen once every few minutes.
+
+A report might be generated asynchronously.
+
+An alarm might require immediate delivery.
+
+Thinking about freshness explicitly helps determine where real-time infrastructure is actually necessary.
+
+A useful mental model is:
+
+```text
+High frequency
+    └── Live position
+
+Medium frequency
+    └── Connection / vehicle state
+
+Event driven
+    ├── Alarms
+    ├── Commands
+    └── Configuration changes
+
+Asynchronous
+    ├── Reports
+    ├── Aggregations
+    └── Historical processing
+```
+
+This prevents the entire platform from becoming dependent on the most demanding workload.
+
+## Redis is useful, but it should not become the database
+
+Redis is extremely useful in connected systems.
+
+It can help with:
+
+- transient state
+- queues
+- events
+- command communication
+- short-lived caches
+- coordination between services
+
+But it should not automatically become the source of truth for everything.
+
+Durable application state should normally have a durable home.
+
+A useful distinction is:
+
+```text
+PostgreSQL
+    = What the system knows
+
+Redis
+    = What the system is currently doing
+```
+
+The exact architecture can vary, but maintaining that conceptual distinction helps prevent operational complexity.
+
+## The map is only the final representation
+
+The map is usually the most visible part of a GPS product.
+
+It is also one of the easiest places to notice architectural problems.
+
+If telemetry arrives irregularly, markers may jump.
+
+If state updates are too frequent, the interface can become unnecessarily expensive.
+
+If camera-following logic is poorly designed, the user can lose control of the map.
+
+If historical and live data are mixed together, rendering becomes difficult to reason about.
+
+A good map architecture therefore separates several concerns:
+
+```text
+Telemetry
+    ↓
+Application state
+    ↓
+Map state
+    ├── Live marker
+    ├── Camera
+    ├── Route
+    ├── Geofence
+    └── User interaction
+```
+
+The map should represent application state.
+
+It should not become the owner of the entire application's state model.
+
+## Camera movement is a product problem
+
+Following a vehicle sounds simple:
+
+```text
+new GPS point
+      ↓
+move camera
+```
+
+But that behavior becomes frustrating when the user is manually exploring the map.
+
+A better model distinguishes between application-driven movement and user-driven movement.
+
+For example:
+
+```text
+Follow mode
+    ↓
+GPS update
+    ↓
+Move marker
+    ↓
+Move camera
+
+User pans map
+    ↓
+Disable automatic camera following
+    ↓
+Continue receiving telemetry
+```
+
+The vehicle should continue updating even when the camera stops following it.
+
+This distinction is small technically, but significant from a user-experience perspective.
+
+## Authentication is only part of access control
+
+A connected-device platform often has several layers of authorization.
+
+Knowing who the user is does not automatically determine what they can access.
+
+A request may need to answer:
+
+```text
+Who is the user?
+        ↓
+What role do they have?
+        ↓
+Which vendor do they belong to?
+        ↓
+Which devices can they access?
+        ↓
+Which operations are permitted?
+```
+
+This becomes particularly important for operations such as:
+
+- viewing location history
+- viewing alarms
+- managing geofences
+- sending remote commands
+- changing device configuration
+- sharing device access
+
+Authorization should therefore be enforced at the domain boundary rather than relying only on frontend visibility.
+
+## Remote commands are a different kind of problem
+
+Reading telemetry and sending a command are fundamentally different operations.
+
+Telemetry generally flows:
+
+```text
+Device → Platform → Client
+```
+
+A remote command flows in the opposite direction:
+
+```text
+Client
+  ↓
+Backend
+  ↓
+Command queue
+  ↓
+Device connection
+  ↓
+Physical device
+  ↓
+Response
+  ↓
+Backend
+  ↓
+Client
+```
+
+The system therefore has to deal with:
+
+- command identity
+- authorization
+- delivery
+- timeouts
+- device availability
+- retries
+- responses
+- failures
+- user feedback
+
+A remote command should not be treated as a simple HTTP request that immediately changes the physical device.
+
+The network between the application and the device may not be available at that exact moment.
+
+## Failure is part of the architecture
+
+Distributed systems should be designed around failure rather than assuming it is exceptional.
+
+A device will disconnect.
+
+A network request will fail.
+
+A service will restart.
+
+A message will arrive late.
+
+A database query will occasionally take longer than expected.
+
+A user will perform an operation at exactly the wrong moment.
+
+The goal is not to eliminate all failures.
+
+The goal is to make failures understandable and recoverable.
+
+For a GPS platform, that means thinking explicitly about:
+
+- timeouts
+- retries
+- stale state
+- idempotency
+- connection recovery
+- command expiration
+- data validation
+- observability
+- authorization boundaries
+
+These concerns are not secondary implementation details.
+
+They are part of the architecture.
+
+## Keep the boundaries understandable
+
+After working through the different layers, the central architectural principle becomes fairly simple:
+
+> Each part of the system should have a clear responsibility.
+
+The device server should understand device communication.
+
+The backend should understand the application domain.
+
+The database should store and query durable state efficiently.
+
+The real-time layer should handle communication where real-time behavior is actually needed.
+
+The frontend should represent application state and provide the user experience.
+
+When those boundaries remain clear, individual technologies can change without forcing the entire system to change with them.
+
+## Closing thoughts
+
+Building a GPS platform is ultimately an exercise in managing distributed state.
+
+There are physical devices, unreliable networks, backend services, databases, real-time communication, maps, users, and permissions involved in the same product.
+
+The challenge is making those independent pieces behave like one coherent system.
+
+That requires more than choosing a framework.
+
+It requires understanding data flow, defining boundaries, modeling state carefully, handling failure explicitly, and deciding where real-time behavior is genuinely valuable.
+
+The technologies matter.
+
+But the architecture matters more.

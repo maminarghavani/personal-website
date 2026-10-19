@@ -1,0 +1,55 @@
+---
+title: "Cerwin GPS"
+description: "A cross-platform mobile application for real-time vehicle tracking, maps, telemetry, remote commands, and geofencing."
+category: "Mobile Engineering"
+technologies:
+  - Flutter
+  - Dart
+  - Riverpod
+  - MapLibre
+  - GoRouter
+status: "Active"
+featured: true
+year: "2025–Present"
+role: "Software Engineer"
+---
+
+## Overview
+
+Cerwin GPS is a cross-platform mobile application for monitoring and interacting with connected vehicles.
+
+The application combines live GPS data, interactive maps, vehicle state, telemetry, alarms, geofences, and remote device commands into a single mobile experience.
+
+## What I built
+
+The application includes:
+
+- Real-time vehicle tracking
+- Interactive MapLibre maps
+- Vehicle markers and direction handling
+- Location history
+- Geofencing
+- Alarm monitoring
+- Remote device commands
+- Fuel and telemetry views
+- Device access management
+- Light and dark themes
+- Responsive mobile and web layouts
+
+## Maps and real-time data
+
+The map is one of the central parts of the application.
+
+Vehicle positions need to update without making the interface feel unstable or causing unnecessary camera movement.
+
+The application therefore separates live tracking, historical playback, map rendering, camera following, and user interaction into distinct concerns.
+
+## Navigation architecture
+
+The application uses GoRouter for navigation and Riverpod for application state.
+
+Particular attention was given to navigation lifecycle and map-controller ownership because map widgets maintain native resources that should not be manually disposed of by unrelated application layers.
+
+## Result
+
+Cerwin GPS provides a focused interface for interacting with the connected-device platform from mobile and web environments while keeping real-time telemetry, mapping, and remote operations in one application.
