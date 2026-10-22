@@ -23,7 +23,7 @@ export const metadata: Metadata = {
 };
 
 export default function PersianAboutPage() {
-  const about = getAboutContent("fa");
+  // const about = getAboutContent("fa");
 
   return (
     <div dir="rtl">

@@ -4,6 +4,8 @@ import { getBlogPosts, getLocalizedBlogPosts } from "@/lib/blog";
 import { getProjects, getLocalizedProjects } from "@/lib/projects";
 import { siteConfig } from "@/lib/site";
 
+export const dynamic = "force-static";
+
 const baseUrl = siteConfig.url.replace(/\/$/, "");
 
 function absoluteUrl(path: string): string {
